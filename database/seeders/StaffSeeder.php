@@ -1,38 +1,37 @@
 <?php
 
 namespace Database\Seeders;
+
+use App\Models\Department;
 use App\Models\User;
-use Illuminate\Support\Str;
+use Database\Seeders\Concerns\LoadsSeedData;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
-// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Support\Str;
 
 class StaffSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     *
-     * @return void
-     */
-    public function run()
+    use LoadsSeedData;
+
+    public function run(): void
     {
-        //
-        //disable foreign key check for this connection before running seeders
-        // DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-        DB::table('staffs')->delete();
+        $password = bcrypt($this->institutionData()['default_password']);
 
-        User::create([
-            'first_name' => "Bashir",
-            'middle_name' => "Basso",
-            'surname' => "Maduka",
-            'email'=>"georgemaduka92@gmail.com",
-            'gender'=>"male",
-            'role'=> "Admin",
-            'password'=> bcrypt("12345"),
-            'remember_token'=> Str::random(60),
-            ]);
+        foreach ($this->institutionData()['staff'] as $row) {
+            $department = Department::where('name', $row['department'])->firstOrFail();
 
-        // DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-
+            User::updateOrCreate(
+                ['email' => $row['email']],
+                [
+                    'first_name' => $row['first_name'],
+                    'middle_name' => $row['middle_name'] ?: '—',
+                    'surname' => $row['surname'],
+                    'gender' => $row['gender'],
+                    'role' => $row['role'],
+                    'department_id' => $department->id,
+                    'password' => $password,
+                    'remember_token' => Str::random(60),
+                ]
+            );
+        }
     }
 }
