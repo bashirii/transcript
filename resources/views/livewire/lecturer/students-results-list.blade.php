@@ -73,6 +73,7 @@
                                 <th scope="col">FE marks</th>
                                 <th scope="col">Toatal marks</th>
                                 <th scope="col">Grade</th>
+                                <th scope="col" class="text-center">Blockchain</th>
                                 <th scope="col" class="text-center">Save results</th>
                             </tr>
                         </thead>
@@ -128,6 +129,32 @@
                                         </center>
                                     </td>
                                     <td class="text-center">
+                                        @php
+                                            $regNo = $data->student->registration_no;
+                                            $resultId = $result_ids[$regNo] ?? null;
+                                            $status = $verification_status[$resultId] ?? null;
+                                        @endphp
+                                        @if (empty($anchored_hashes[$regNo] ?? null))
+                                            <span class="badge bg-secondary">Not yet anchored</span>
+                                        @else
+                                            <span class="badge bg-success d-block mb-1">Anchored</span>
+                                            <small class="d-block text-muted" title="{{ $anchor_tx_hashes[$regNo] }}">
+                                                tx: {{ Str::limit($anchor_tx_hashes[$regNo], 14, '…') }}
+                                            </small>
+                                            <button type="button" wire:click="verifyOnBlockchain({{ $resultId }})"
+                                                class="btn btn-outline-primary btn-sm mt-1" title="Verify against blockchain">
+                                                Verify
+                                            </button>
+                                            @if ($status === 'match')
+                                                <span class="badge bg-success d-block mt-1">✔ Matches chain</span>
+                                            @elseif ($status === 'mismatch')
+                                                <span class="badge bg-danger d-block mt-1">⚠ Tampered</span>
+                                            @elseif ($status === 'error')
+                                                <span class="badge bg-warning d-block mt-1">Verify failed</span>
+                                            @endif
+                                        @endif
+                                    </td>
+                                    <td class="text-center">
                                         <button type="button"
                                             wire:click="saveStudentResults({{ $data->student->registration_no }})"
                                             class="btn btn-primary" title="Save Results"><i
@@ -135,7 +162,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <td colspan="8" class="text-center">No Student Enrolled found.</td>
+                                <td colspan="9" class="text-center">No Student Enrolled found.</td>
                             @endforelse
                         </tbody>
                     </table>
