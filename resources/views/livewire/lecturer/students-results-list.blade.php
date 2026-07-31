@@ -149,6 +149,14 @@
                                                 <span class="badge bg-success d-block mt-1">✔ Matches chain</span>
                                             @elseif ($status === 'mismatch')
                                                 <span class="badge bg-danger d-block mt-1">⚠ Tampered</span>
+                                                @if (isset($original_data[$resultId]))
+                                                    <small class="d-block text-muted mt-1">
+                                                        Originally: CA {{ $original_data[$resultId]['c_a_marks'] }},
+                                                        FE {{ $original_data[$resultId]['f_e_marks'] }},
+                                                        Total {{ $original_data[$resultId]['total_marks'] }},
+                                                        Grade {{ $original_data[$resultId]['grade_name'] }}
+                                                    </small>
+                                                @endif
                                             @elseif ($status === 'error')
                                                 <span class="badge bg-warning d-block mt-1">Verify failed</span>
                                             @endif
