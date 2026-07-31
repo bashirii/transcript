@@ -33,6 +33,10 @@ class StudentsResultsList extends Component
     // resultId => 'match' | 'mismatch' | 'error', populated by verifyOnBlockchain()
     public $verification_status = [];
 
+    // resultId => ['c_a_marks' => .., 'f_e_marks' => .., 'total_marks' => .., 'grade_name' => ..]
+    // populated by verifyOnBlockchain() only when a mismatch is found, straight from the chain
+    public $original_data = [];
+
     // keyed by student_reg_no, so the Blade view can show blockchain status per row
     public $result_ids = [];
     public $anchored_hashes = [];
@@ -154,17 +158,33 @@ class StudentsResultsList extends Component
         }
     }
 
-    /// Recomputes the hash from the result's CURRENT database row and asks the contract
-    /// whether it still matches what was anchored — this is the tamper-evidence check.
+    /// Recomputes the snapshot from the result's CURRENT database row and asks the contract
+    /// whether it still matches what was anchored — this is the tamper-evidence check. On a
+    /// mismatch, also pulls the original snapshot back from the chain so it can be shown.
     public function verifyOnBlockchain($resultId) {
         $result = Result::find($resultId);
+        $service = new BlockchainAnchorService();
 
         try {
-            $matches = (new BlockchainAnchorService())->verify($resultId, $result->only([
+            $matches = $service->verify($resultId, $result->only([
                 'student_reg_no', 'module_code', 'c_a_marks', 'f_e_marks', 'total_marks', 'grade_id',
             ]));
 
             $this->verification_status[$resultId] = $matches ? 'match' : 'mismatch';
+
+            if (! $matches) {
+                $original = $service->getOriginalData($resultId);
+
+                if ($original) {
+                    $grade = Grade::find($original['grade_id']);
+                    $this->original_data[$resultId] = [
+                        'c_a_marks' => $original['c_a_marks'],
+                        'f_e_marks' => $original['f_e_marks'],
+                        'total_marks' => $original['total_marks'],
+                        'grade_name' => $grade->name ?? $original['grade_id'],
+                    ];
+                }
+            }
         } catch (\Throwable $e) {
             report($e);
             $this->verification_status[$resultId] = 'error';

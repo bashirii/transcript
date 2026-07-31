@@ -8,10 +8,15 @@ use Web3\Providers\HttpProvider;
 use Web3\RequestManagers\HttpRequestManager;
 use Web3\Utils;
 
-/// Anchors a hash of a student's result on-chain (ResultLedger.sol) and lets the app
-/// re-verify, later, that the currently-stored result still matches what was anchored.
+/// Anchors a student's result snapshot on-chain (ResultLedger.sol) and lets the app
+/// re-verify, later, that the currently-stored result still matches what was anchored —
+/// and, since the snapshot itself is stored on-chain (not just a hash of it), recover the
+/// original values when a mismatch shows the off-chain row was tampered with.
 class BlockchainAnchorService
 {
+    /// Order must stay fixed — it's the same order used to rebuild fields from a stored snapshot.
+    protected const FIELDS = ['student_reg_no', 'module_code', 'c_a_marks', 'f_e_marks', 'total_marks', 'grade_id'];
+
     protected Contract $contract;
 
     protected string $anchorAddress;
@@ -29,33 +34,32 @@ class BlockchainAnchorService
     }
 
     /// Canonical, order-fixed representation of the fields that make a result what it is.
-    /// Any change to any of these fields changes the hash.
-    public function hashForResult(array $result): string
+    /// This exact string is what gets stored on-chain and later read back.
+    public function canonicalSnapshot(array $result): string
     {
-        $canonical = implode('|', [
-            $result['student_reg_no'],
-            $result['module_code'],
-            $result['c_a_marks'],
-            $result['f_e_marks'],
-            $result['total_marks'],
-            $result['grade_id'],
-        ]);
-
-        return Utils::sha3($canonical);
+        return implode('|', array_map(fn ($field) => $result[$field], self::FIELDS));
     }
 
-    /// Writes the result's hash on-chain. Returns the hash and the anchoring tx hash.
+    /// A short fingerprint of the snapshot, purely for local display (e.g. the "anchored_hash"
+    /// column) — verification itself compares the on-chain snapshot string, not this hash.
+    public function fingerprint(array $result): string
+    {
+        return Utils::sha3($this->canonicalSnapshot($result));
+    }
+
+    /// Writes the result's full snapshot on-chain. Returns the fingerprint (for display)
+    /// and the anchoring tx hash.
     public function anchor(int $resultId, array $result): array
     {
-        $hash = $this->hashForResult($result);
+        $snapshot = $this->canonicalSnapshot($result);
         $txHash = null;
         $error = null;
 
         $this->contract->send(
             'anchorResult',
             $resultId,
-            $hash,
-            ['from' => $this->anchorAddress, 'gas' => '0x30000'],
+            $snapshot,
+            ['from' => $this->anchorAddress, 'gas' => '0x50000'],
             function ($err, $tx) use (&$txHash, &$error) {
                 if ($err !== null) {
                     $error = $err;
@@ -69,21 +73,21 @@ class BlockchainAnchorService
             throw new RuntimeException('Failed to anchor result on-chain: '.$error->getMessage());
         }
 
-        return ['hash' => $hash, 'tx_hash' => $txHash];
+        return ['hash' => Utils::sha3($snapshot), 'tx_hash' => $txHash];
     }
 
-    /// Recomputes the hash from the result's CURRENT field values and asks the contract
-    /// whether that matches what was anchored — this is what actually detects tampering.
+    /// Recomputes the snapshot from the result's CURRENT field values and asks the contract
+    /// whether that still matches what was anchored — this is what actually detects tampering.
     public function verify(int $resultId, array $result): bool
     {
-        $hash = $this->hashForResult($result);
+        $snapshot = $this->canonicalSnapshot($result);
         $matches = false;
         $error = null;
 
         $this->contract->call(
             'verifyResult',
             $resultId,
-            $hash,
+            $snapshot,
             function ($err, $response) use (&$matches, &$error) {
                 if ($err !== null) {
                     $error = $err;
@@ -98,5 +102,35 @@ class BlockchainAnchorService
         }
 
         return $matches;
+    }
+
+    /// Reads the original anchored snapshot back from the chain and rebuilds it into the
+    /// same field names anchor()/verify() take. Null if resultId was never anchored.
+    public function getOriginalData(int $resultId): ?array
+    {
+        $snapshot = null;
+        $error = null;
+
+        $this->contract->call(
+            'getAnchoredData',
+            $resultId,
+            function ($err, $response) use (&$snapshot, &$error) {
+                if ($err !== null) {
+                    $error = $err;
+                    return;
+                }
+                $snapshot = $response[0];
+            }
+        );
+
+        if ($error !== null) {
+            throw new RuntimeException('Failed to read anchored data from chain: '.$error->getMessage());
+        }
+
+        if (empty($snapshot)) {
+            return null;
+        }
+
+        return array_combine(self::FIELDS, explode('|', $snapshot));
     }
 }
