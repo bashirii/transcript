@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\Grade;
 use App\Models\Module;
 use App\Models\Result;
+use App\Services\BlockchainAnchorService;
 use Livewire\Component;
 use App\Models\student_module;
 use App\Models\lecturer_module;
@@ -18,7 +19,7 @@ class StudentsResultsList extends Component
     public $students_enrolled = [];
 
     public $stu_c_a_marks = [];
-    
+
     public $stu_f_e_marks = [];
 
     public $total_marks = [];
@@ -28,7 +29,15 @@ class StudentsResultsList extends Component
     public $grade_names = [];
 
     public $student_enrolled_count = 0;
-    
+
+    // resultId => 'match' | 'mismatch' | 'error', populated by verifyOnBlockchain()
+    public $verification_status = [];
+
+    // keyed by student_reg_no, so the Blade view can show blockchain status per row
+    public $result_ids = [];
+    public $anchored_hashes = [];
+    public $anchor_tx_hashes = [];
+
     public function calculateTotalMarks($stu_registration_no) {
 
         $sum = intval($this->stu_c_a_marks[$stu_registration_no] ?? 0) + intval($this->stu_f_e_marks[$stu_registration_no] ?? 0);
@@ -66,25 +75,28 @@ class StudentsResultsList extends Component
 
                 if(count($check_student_results) != 0) {
 
+                    $result = $check_student_results->first();
+
                     $stu_module_results_update = Result::where('module_code', $this->module->code)->where('student_reg_no', $this->stu_registration_no)->update([
                         'c_a_marks' => $this->stu_c_a_marks[$this->stu_registration_no],
                         'f_e_marks' => $this->stu_f_e_marks[$this->stu_registration_no],
                         'total_marks' => $this->total_marks[$this->stu_registration_no],
                         'grade_id' => $this->grade_ids[$this->stu_registration_no],
                     ]);
-    
+
                     if($stu_module_results_update) {
+                        $this->anchorResultOnBlockchain($result->id);
                         $this->clearForm();
                         $this->dispatchBrowserEvent('success_alert', 'Student\'s CA and FE updated successfully');
-            
+
                     } else {
                         $this->dispatchBrowserEvent('failure_alert', 'An error occurred. Try again later.');
-                        
+
                     }
 
 
                 } else {
-                    
+
                     $stu_module_results = Result::create([
                         'student_reg_no' => $this->stu_registration_no,
                         'module_code' => $this->module->code,
@@ -94,17 +106,18 @@ class StudentsResultsList extends Component
                         'grade_id' => $this->grade_ids[$this->stu_registration_no],
                         'staff_id' => auth()->user()->id,
                     ]);
-    
+
                     if($stu_module_results) {
+                        $this->anchorResultOnBlockchain($stu_module_results->id);
                         $this->clearForm();
                         $this->dispatchBrowserEvent('success_alert', 'Student\'s CA and FE saved successfully');
-            
+
                     } else {
                         $this->dispatchBrowserEvent('failure_alert', 'An error occurred. Try again later.');
-                        
+
                     }
 
-                }            
+                }
 
             } else {
                 $this->dispatchBrowserEvent('message_alert', 'Please enter Both Student\'s CA and FE marks.');
@@ -116,6 +129,46 @@ class StudentsResultsList extends Component
             
         }
         
+    }
+
+    /// Hashes the just-saved result and anchors it on-chain. Anchoring failure (e.g. the
+    /// local Hardhat node isn't running) never blocks the DB save — it's logged and surfaced
+    /// as a warning instead, since the result record itself already saved successfully.
+    public function anchorResultOnBlockchain($resultId) {
+        $result = Result::find($resultId);
+
+        try {
+            $anchor = (new BlockchainAnchorService())->anchor($resultId, $result->only([
+                'student_reg_no', 'module_code', 'c_a_marks', 'f_e_marks', 'total_marks', 'grade_id',
+            ]));
+
+            $result->update([
+                'anchored_hash' => $anchor['hash'],
+                'anchor_tx_hash' => $anchor['tx_hash'],
+            ]);
+
+            $this->verification_status[$resultId] = 'match';
+        } catch (\Throwable $e) {
+            report($e);
+            $this->dispatchBrowserEvent('message_alert', 'Result saved, but blockchain anchoring failed: '.$e->getMessage());
+        }
+    }
+
+    /// Recomputes the hash from the result's CURRENT database row and asks the contract
+    /// whether it still matches what was anchored — this is the tamper-evidence check.
+    public function verifyOnBlockchain($resultId) {
+        $result = Result::find($resultId);
+
+        try {
+            $matches = (new BlockchainAnchorService())->verify($resultId, $result->only([
+                'student_reg_no', 'module_code', 'c_a_marks', 'f_e_marks', 'total_marks', 'grade_id',
+            ]));
+
+            $this->verification_status[$resultId] = $matches ? 'match' : 'mismatch';
+        } catch (\Throwable $e) {
+            report($e);
+            $this->verification_status[$resultId] = 'error';
+        }
     }
 
     public function clearForm() {
@@ -142,7 +195,10 @@ class StudentsResultsList extends Component
                 $this->stu_f_e_marks[$result->student_reg_no] = $result->f_e_marks;
                 $this->total_marks[$result->student_reg_no] = $result->total_marks;
                 $this->grade_ids[$result->student_reg_no] = $result->grade_id;
-               
+
+                $this->result_ids[$result->student_reg_no] = $result->id;
+                $this->anchored_hashes[$result->student_reg_no] = $result->anchored_hash;
+                $this->anchor_tx_hashes[$result->student_reg_no] = $result->anchor_tx_hash;
             }
         }
         
