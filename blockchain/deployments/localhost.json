@@ -19,7 +19,7 @@
         {
           "indexed": false,
           "internalType": "bytes32",
-          "name": "resultHash",
+          "name": "dataHash",
           "type": "bytes32"
         }
       ],
@@ -34,9 +34,9 @@
           "type": "uint256"
         },
         {
-          "internalType": "bytes32",
-          "name": "resultHash",
-          "type": "bytes32"
+          "internalType": "string",
+          "name": "data",
+          "type": "string"
         }
       ],
       "name": "anchorResult",
@@ -52,12 +52,12 @@
           "type": "uint256"
         }
       ],
-      "name": "getAnchoredHash",
+      "name": "getAnchoredData",
       "outputs": [
         {
-          "internalType": "bytes32",
+          "internalType": "string",
           "name": "",
-          "type": "bytes32"
+          "type": "string"
         }
       ],
       "stateMutability": "view",
@@ -84,9 +84,9 @@
           "type": "uint256"
         },
         {
-          "internalType": "bytes32",
-          "name": "resultHash",
-          "type": "bytes32"
+          "internalType": "string",
+          "name": "data",
+          "type": "string"
         }
       ],
       "name": "verifyResult",
