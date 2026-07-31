@@ -1,0 +1,17 @@
+{
+  "name": "transcript-blockchain",
+  "version": "1.0.0",
+  "description": "Minimal Hardhat project for anchoring transcript exam results on-chain (Assignment 04)",
+  "private": true,
+  "license": "ISC",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.0.0",
+    "hardhat": "^2.22.0"
+  }
+}
